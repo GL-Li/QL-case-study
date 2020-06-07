@@ -1,4 +1,6 @@
 library(ggplot2)
+library(data.table)
+library(magrittr)
 library(caret)
 library(pROC)
 library(ROSE)
@@ -26,10 +28,32 @@ dat_test <- dat[-in_train,]
 # baseline model: logistic regression ==========================================
 lr <- glm(y ~ ., data = dat_train, family = binomial)
 
-lr_pred <- predict(lr, dat_test, type = "response")
-lr_roc <- roc(dat_test$y, lr_pred)
+lr_pred_train <- predict(lr, dat_train, type = "response")
+lr_roc_train <- roc(dat_train$y, lr_pred_train)
 
-plot_roc(logit = lr_roc)
+lr_pred_test <- predict(lr, dat_test, type = "response")
+lr_roc_test <- roc(dat_test$y, lr_pred_test)
+
+plot_rocs(`logit train` = lr_roc_train, `logit test` = lr_roc_test)
+
+
+
+# data preprocessing ===========================================================
+
+pre_proc <- function(data = data_train){
+    # To create a preprocessing transformer using train data
+    #
+    # Arguments
+    # ---------
+    #   data: data frame with features to be preprocessed
+    #
+    # Return
+    # ------
+    #   A data frame with preproccessed features
+    
+    # 
+    
+}
 
 
 
