@@ -1,0 +1,262 @@
+---
+title: "Quicken Loans Case Study"
+author: "Guanglai Li"
+date: "6/5/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+## The problem set
+To decide to call which client that has better conversion rate.
+
+What happens: A bank agent calls a client. The client decides whether to subscribe a term deposit. The outcome is "yes" or "no".
+
+
+Rank by probability, choose a cutoff by considering cost and gain, which is not available now.
+
+
+Use the best results from this [paper](http://media.salford-systems.com/video/tutorial/2015/targeted_marketing.pdf) as baseline model.
+
+To make useful predictive models, values of features must be known at time of prediction.
+
+Temporal train-test splitting to predict for future
+
+Use easy to collect features for predictive model
+
+
+### bank client data: 
+for existing bank client so the bank client data is known
+
+duration is not known before call so has no predictive value
+
+### month 
+only 10 months, no future predictive power? treat as integer????
+
+### Other attributes
+- pdays: number of days that passed by after the client was last contacted from a previous campaign (numeric; 999 means client was not previously contacted)
+
+### social and economic context attributes
+
+
+## Dependence of average outcome on individual features
+
+### Reading data
+Read the data and convert the outcome column *y* to integer, 0 for "no" and 1 for "yes", so that the mean of the outcome is the average success rate.
+```{r}
+library(data.table)
+library(magrittr)
+
+dat <- fread("bank-additional/bank-additional-full.csv") %>%
+    .[y == "yes", y := 1] %>%
+    .[y == "no", y := 0] %>%
+    .[, y := as.integer(y)]
+```
+
+
+The outcome is inbalanced, with far more failure than success. The average success rate is `r mean(dat$y)`.
+
+```{r}
+barplot(table(dat$y), ylab = "Count")
+```
+
+
+### Defining a function to visualize outcome ~ feature
+The purpose is to quickly visualize dependence of average outcome on a feature. It is not tuned for the for best visual effect.
+
+```{r}
+plot_avg <- function(dt, feature, target = "y"){
+    # To plot the dependence of mean ourcome as function of a feature as well 
+    # as to mark the count samples for each feature value.
+    #
+    # Arguments
+    # ---------
+    # dt: data.table of the bank dataset
+    # feature: one of the features in the datset
+    # target: target of the dataset
+    #
+    # Return
+    # ------
+    # make a plot, no return
+    
+    dat_avg <- dt[, 
+                  .(avg_success = mean(get(target)),
+                    count = .N), 
+                  by = get(feature)] %>%
+        set_colnames(c(feature, "avg_success", "samples"))
+    ggplot(dat_avg, aes_string(x = feature)) +
+        geom_point(aes(y = avg_success, size = samples), 
+                   alpha = 0.5) +
+        scale_size_area() +
+        ylim(0, 1.05 * max(dat_avg$avg_success)) +
+        geom_text(aes(y = avg_success + 0.04 * max(avg_success), label = samples)) +
+        theme_bw() +
+        theme(legend.position = "none")
+}
+```
+
+
+### Age
+Age is skewed and the count have a quick drop after 60
+```{r}
+hist(dat$age, breaks = 100)
+```
+The average outcome drop first with increasing age and then jumps after age = 60. The buble size and numbers above bbbles indicate the number of samples.
+
+```{r}
+plot_avg(dat, "age")
+```
+
+### job
+Student and retired are most likely to subscribe. The retired corresponds to the age > 60 and students are those with younger ages. 0.8% unknown. Group unknown and unemployed????
+
+```{r}
+# job, 0.8% missing, unemployed and student are special
+plot_avg(dat, "job") + theme(axis.text.x = element_text(angle = 20, hjust = 1))
+```
+
+### marital
+0.2% missing. Singles have hight success rate.
+
+```{r}
+plot_avg(dat, "marital")
+```
+
+### education
+4% missing. A small number (n = 18) illiterates have high success rate. Are they retired?
+```{r}
+plot_avg(dat, "education") + theme(axis.text.x = element_text(angle = 20, hjust = 1))
+```
+
+
+### credit default
+A large number of missing values and almost all other have no default, we cannot impute the missing value but rather treat the missing value as its own category.
+
+```{r}
+plot_avg(dat, "default")
+```
+
+### housing load?
+With or without housing loan seems not a big factor. 2.4% missing values.
+
+```{r}
+plot_avg(dat, "housing")
+```
+
+### personal loan?
+With or without personal loan is not big deal. 2.4% missing, same clients as in housing loan?
+
+```{r}
+plot_avg(dat, "loan")
+```
+
+
+# contact: cell phone or landline
+More success when contact with cell phone.
+
+```{r}
+plot_avg(dat2, "contact")
+```
+
+
+### month
+Four month with small sample number but high success rate. What happened? They may not be reproduced in future campaign. And only 10 month show up here, no Jan and Feb. Delete it??????? or into "may" and "others"
+
+```{r}
+dat$month = factor(dat$month, 
+                   levels = c("jan", "feb", "mar", "apr", "may", "jun", "jul",
+                              "aug", "sep", "oct", "nov", "dec"))
+plot_avg(dat, "month")
+```
+
+### day of week
+Monday and Friday are bad days.
+
+```{r}
+plot_avg(dat, "day_of_week")
+```
+
+### number of contact in this campaign
+Skewed but is really good indicator
+
+```{r}
+barplot(table(dat2$campaign))
+plot_avg(dat, "campaign")
+```
+
+### days since last contact in a previous campaign
+999 means no contact in a previous campaign. For the small amount of sample with previous contact, it boosts success but no obvious trend, thus can be grouped otgether. So this feature can be placed into two groups: with and without previous contact.
+
+```{r}
+plot_avg(dat, "pdays")
+plot_avg(dat, "pdays") + xlim(0, 30)
+```
+
+### number of contact in previous campaign
+could be in three groups, 0, 1, and > 1.
+
+```{r}
+plot_avg(dat, "previous")
+```
+
+### outcome of previous campaign
+Success leads to success. What is the majority, "nonexistent"??????
+
+```{r}
+plot_avg(dat2, "poutcome")
+```
+
+### employment variation rate (quaterly)
+Left skewed?? Nice dependence
+
+```{r}
+barplot(table(dat$emp.var.rate))
+plot_avg(dat, "emp.var.rate")
+```
+
+### consumer price index (monthly)
+
+```{r}
+barplot(table(dat$cons.price.idx))
+```
+
+
+Three clusters????? Specific events????
+```{r}
+plot_avg(dat2, "cons.price.idx")
+```
+
+
+### consumer confidence index (monthly)
+
+```{r}
+plot_avg(dat, "cons.conf.idx")
+```
+
+### uribor three month rate (daily)
+clusters
+
+```{r}
+plot_avg(dat2, "euribor3m")
+```
+
+
+### number of employees (quaterly)
+
+```{r}
+plot_avg(dat2, "nr.employed")
+```
+
+
+### Correlation of economy indicaters
+Strong correlations. keep only two or three of them: emp.var.rate and cons.conf.idx
+
+```{r}
+econ <- dat[, .(emp.var.rate, cons.price.idx, cons.conf.idx, euribor3m, nr.employed)]
+cor(econ)
+```
+
+

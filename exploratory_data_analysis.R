@@ -106,6 +106,7 @@ dat2 <- fread("bank-additional/bank-additional-full.csv") %>%
 
 # age, skewed, sharp drop above 60
 hist(dat2$age, breaks = 100)
+plot_avg(dat2, "age")
 
 # job, 0.8% missing, unemployed and student are special
 job_count <- sort(table(dat2$job), decreasing = T)
