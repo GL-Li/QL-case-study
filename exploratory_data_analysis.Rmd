@@ -19,6 +19,13 @@ What happens: A bank agent calls a client. The client decides whether to subscri
 Rank by probability, choose a cutoff by considering cost and gain, which is not available now.
 
 
+data ordered from old to new: using model build on old data to predict on new data. So it is not a random train-test splitting.
+
+Why bank-full not bank-additional-full:
+- extra economic indicators not available at the time of making prediction
+- bank-full has a feature of balance, which is a strong feature.
+
+
 Use the best results from this [paper](http://media.salford-systems.com/video/tutorial/2015/targeted_marketing.pdf) as baseline model.
 
 To make useful predictive models, values of features must be known at time of prediction.
@@ -50,7 +57,7 @@ Read the data and convert the outcome column *y* to integer, 0 for "no" and 1 fo
 library(data.table)
 library(magrittr)
 
-dat <- fread("bank-additional/bank-additional-full.csv") %>%
+dat <- fread("bank/bank-full.csv") %>%
     .[y == "yes", y := 1] %>%
     .[y == "no", y := 0] %>%
     .[, y := as.integer(y)]
@@ -62,6 +69,25 @@ The outcome is inbalanced, with far more failure than success. The average succe
 ```{r}
 barplot(table(dat$y), ylab = "Count")
 ```
+
+The distribution of success is not temporally homogeneous. The sparks may be the result of special campaign.
+
+**Assumption**: We will assume that same clients with same features have the same probability to subscribe. 
+
+```{r}
+# moving average
+moving_avg <- function(x, n){
+  ts <- stats::filter(x = x, filter = rep(1, n)/n, sides = 1)
+  as.vector(ts)
+}
+
+dat[, mv_avg := moving_avg(y, 100)]
+plot(1:nrow(dat), dat$mv_avg, type = "l",
+     main = "Moving Avarage of Sucess Rate (n = 100)",
+     xlab = "Sample (Row) Index",
+     ylab = "Average Success Rate")
+```
+
 
 
 ### Defining a function to visualize outcome ~ feature
@@ -104,14 +130,14 @@ Age is skewed and the count have a quick drop after 60
 ```{r}
 hist(dat$age, breaks = 100)
 ```
-The average outcome drop first with increasing age and then jumps after age = 60. The buble size and numbers above bbbles indicate the number of samples.
+The average outcome drop first with increasing age and then jumps after age = 60 (most of them are retired, which is a feature in job, so no need to create a new feature > 60). The buble size and numbers above bbbles indicate the number of samples.
 
 ```{r}
 plot_avg(dat, "age")
 ```
 
 ### job
-Student and retired are most likely to subscribe. The retired corresponds to the age > 60 and students are those with younger ages. 0.8% unknown. Group unknown and unemployed????
+Student and retired are most likely to subscribe. The retired corresponds to the age > 60 and students are those with younger ages. 0.8% unknown. Group unknown and unemployed. Reduce group to "admin", "blue-collar", "technician", "others"
 
 ```{r}
 # job, 0.8% missing, unemployed and student are special
@@ -119,7 +145,7 @@ plot_avg(dat, "job") + theme(axis.text.x = element_text(angle = 20, hjust = 1))
 ```
 
 ### marital
-0.2% missing. Singles have hight success rate.
+0.2% missing. Singles have hight success rate. Merge into two groups: "married", "single". Unknow to single
 
 ```{r}
 plot_avg(dat, "marital")
@@ -138,6 +164,17 @@ A large number of missing values and almost all other have no default, we cannot
 ```{r}
 plot_avg(dat, "default")
 ```
+
+# balance
+Skewed data. More money more likely to subscribe.
+```{r}
+hist(dat$balance, breaks = 100)
+
+dat$balance_cut <- ggplot2::cut_number(dat$balance, n = 5)
+plot_avg(dat, "balance_cut")
+```
+
+
 
 ### housing load?
 With or without housing loan seems not a big factor. 2.4% missing values.
@@ -158,105 +195,55 @@ plot_avg(dat, "loan")
 More success when contact with cell phone.
 
 ```{r}
-plot_avg(dat2, "contact")
+plot_avg(dat, "contact")
 ```
 
 
 ### month
-Four month with small sample number but high success rate. What happened? They may not be reproduced in future campaign. And only 10 month show up here, no Jan and Feb. Delete it??????? or into "may" and "others"
+Four month with small sample number but high success rate. Remove month as the two and half year data is not enough to cover the temperoal split of train-validation-test datasets.
 
 ```{r}
 dat$month = factor(dat$month, 
                    levels = c("jan", "feb", "mar", "apr", "may", "jun", "jul",
                               "aug", "sep", "oct", "nov", "dec"))
-plot_avg(dat, "month")
+plot_avg(dat, "month") +
+  labs(x = "Month", y = "Average Success Rate")
 ```
 
-### day of week
-Monday and Friday are bad days.
+### day
+Delete as it does not carry much information
 
 ```{r}
-plot_avg(dat, "day_of_week")
+plot_avg(dat, "day")
 ```
 
 ### number of contact in this campaign
 Skewed but is really good indicator
 
 ```{r}
-barplot(table(dat2$campaign))
+barplot(table(dat$campaign))
 plot_avg(dat, "campaign")
 ```
 
 ### days since last contact in a previous campaign
-999 means no contact in a previous campaign. For the small amount of sample with previous contact, it boosts success but no obvious trend, thus can be grouped otgether. So this feature can be placed into two groups: with and without previous contact.
+-1 means no contact in a previous campaign. For the small amount of sample with previous contact, it boosts success but no obvious trend, thus can be grouped otgether. So this feature can be placed into two groups: with and without previous contact.
 
 ```{r}
+hist(dat$pdays, breaks = 100)
 plot_avg(dat, "pdays")
 plot_avg(dat, "pdays") + xlim(0, 30)
 ```
 
 ### number of contact in previous campaign
-could be in three groups, 0, 1, and > 1.
+reduce to two groupd, "yes" and "no".
 
 ```{r}
-plot_avg(dat, "previous")
+plot_avg(dat, "previous") + xlim(0, 40)
 ```
 
 ### outcome of previous campaign
-Success leads to success. What is the majority, "nonexistent"??????
+Success leads to success. others just one group
 
 ```{r}
-plot_avg(dat2, "poutcome")
+plot_avg(dat, "poutcome")
 ```
-
-### employment variation rate (quaterly)
-Left skewed?? Nice dependence
-
-```{r}
-barplot(table(dat$emp.var.rate))
-plot_avg(dat, "emp.var.rate")
-```
-
-### consumer price index (monthly)
-
-```{r}
-barplot(table(dat$cons.price.idx))
-```
-
-
-Three clusters????? Specific events????
-```{r}
-plot_avg(dat2, "cons.price.idx")
-```
-
-
-### consumer confidence index (monthly)
-
-```{r}
-plot_avg(dat, "cons.conf.idx")
-```
-
-### uribor three month rate (daily)
-clusters
-
-```{r}
-plot_avg(dat2, "euribor3m")
-```
-
-
-### number of employees (quaterly)
-
-```{r}
-plot_avg(dat2, "nr.employed")
-```
-
-
-### Correlation of economy indicaters
-Strong correlations. keep only two or three of them: emp.var.rate and cons.conf.idx
-
-```{r}
-econ <- dat[, .(emp.var.rate, cons.price.idx, cons.conf.idx, euribor3m, nr.employed)]
-cor(econ)
-```
-
-

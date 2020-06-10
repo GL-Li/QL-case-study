@@ -5,20 +5,20 @@
 library(pROC)
 source("utilities.R")
 
-# read data, remove duration and month
-dat <- read.csv("bank-additional/bank-additional-full.csv",
+# read data, remove duration and change months
+dat <- read.csv("bank/bank-full.csv",
                 stringsAsFactors = TRUE, 
                 sep = ";")
 dat$duration <- NULL
 dat$month <- NULL
+dat$day <- NULL
+dat$y <- factor(dat$y, levels = c("yes", "no"))
 
 
-# train-test split
-set.seed(1234)
-in_train <- caret::createDataPartition(dat$y, p = 0.8, list = FALSE)
+# train-test split based on time. the last 9000 samples in test
 
-dat_train <- dat[in_train,]
-dat_test <- dat[-in_train,]
+dat_train <- dat[1:36211,]
+dat_test <- dat[36212:45211,]
 
 
 # baseline model: logistic regression
@@ -32,3 +32,6 @@ base_roc_test <- roc(dat_test$y, base_pred_test)
 
 # plot roc curves using train and test data
 plot_rocs(`base train` = base_roc_train, `base test` = base_roc_test)
+
+
+plot_lifts(y = dat_test$y, base_test = 1 - base_pred_test) # prob for level 1

@@ -3,20 +3,21 @@
 ###
 
 library(ggplot2)
+library(data.table)
+library(magrittr)
+library(caret)
 
 plot_avg <- function(dt, feature, target = "y"){
     # To plot the dependence of mean ourcome as function of a feature as well 
     # as to mark the count samples for each feature value.
     #
-    # Arguments
-    # ---------
-    # dt: data.table of the bank dataset
-    # feature: one of the features in the datset
-    # target: target of the dataset
+    # Arguments:
+    #   dt: data.table of the bank dataset
+    #   feature: one of the features in the datset
+    #   target: target of the dataset
     #
     # Return
-    # ------
-    # make a plot, no return
+    #   make a plot, no return
     
     dat_avg <- dt[, 
                   .(avg_success = mean(get(target)),
@@ -71,5 +72,94 @@ plot_rocs <- function(...){
         scale_x_continuous(breaks = (0:5) * 0.2) +
         scale_y_continuous(breaks = (0:5) * 0.2) +
         theme_bw() +
-        theme(legend.position = c(0.85, 0.6))
+        theme(legend.position = c(0.85, 0.4))
 }
+
+
+plot_lifts <- function(y, ...){
+    # To plot lift curves for binary classification. The class of interests is
+    # at the level 1 and the probability is the predicted for level 1.
+    #
+    # Arguments:
+    #   y: vector of binary classes
+    #   ...: multiple predicted probabilities for level 1 in the form like 
+    #     aaa = p_pred1, bbb = p_pred2, ...
+    #
+    # Return:
+    #   Make a plot. No return.
+    
+    cat("Be patient. It takes a while to calculate the lift data ... ...")
+    
+    # create lift object
+    df <- data.frame(y = y)
+    probs <- list(...)
+    for (i in 1:length(probs)){
+        df[names(probs)[i]] <- probs[i]
+    }
+    
+    fmlr <- paste0("y ~ ", paste0(names(probs), collapse = " + "))
+    fmlr <- as.formula(fmlr)
+    
+    lift_obj <- lift(fmlr, data = df)
+    
+    # area under lift curve
+    df_lift <- setDT(lift_obj$data)
+    df_lift[, x_step := c(0, diff(CumTestedPct)), by = liftModelVar]
+    a_lift <- df_lift[, .(area = sum(x_step * CumEventPct) / 10000), 
+                      by = liftModelVar]
+    
+    for (nm in names(probs)){
+        df_lift[liftModelVar == nm, alift := a_lift[liftModelVar == nm, area]]
+    }
+
+    df_lift[, method := paste0("\n", liftModelVar, "\nALIFT = ",
+                              round(alift, 5))]
+
+    
+    ggplot() +
+        geom_line(data = df_lift, 
+                  aes(CumTestedPct / 100, CumEventPct / 100, color = method)) +
+        geom_line(data = data.frame(x = c(0, 1), y = c(0, 1)),
+                  mapping = aes(x, y),
+                  color = "gray90") +
+        scale_x_continuous(breaks = (0:5) * 0.2) +
+        scale_y_continuous(breaks = (0:5) * 0.2) +
+        labs(x = "Clients Contacted",
+             y = "Subscribers Found") +
+        theme_bw() +
+        theme(legend.position = c(0.85, 0.4)) 
+}
+
+# 
+# create_dummies <- function(data_train, data_new = NULL, excluded = "y"){
+#     # Create dummy variables for data_new using data_train
+#     #
+#     # Arguments:
+#     #  data_train, data_new: data.tables
+#     # exluded: vector of factor columns excluded from transfromation
+#     # 
+#     # Returns:
+#     #   Transformed dataframe of data_new
+#     
+#     if (is.null(data_new)){
+#         data_new <- data_train
+#     }
+# 
+#     cat_feats <- names(data_train)[sapply(data_train, is.factor)] %>%
+#         setdiff(excluded)
+#     other_feats <- setdiff(names(data_train), cat_feats)
+#     
+#     train_cat <- data_train[, cat_feats, with = FALSE]
+#     train_others <- data_train[, other_feats, with = FALSE]
+#     
+#     new_cat <- data_new[, cat_feats, with = FALSE]
+#     new_others <- data_new[, other_feats, with = FALSE]
+#     
+#     dummy_trans <- dummyVars(~ ., train_cat, sep = "_", fullRank = TRUE)
+#     new_dummies <- predict(dummy_trans, new_cat) %>%
+#         as.data.table()
+#     
+#     cbind(new_dummies, new_others)
+# }
+# 
+# 
