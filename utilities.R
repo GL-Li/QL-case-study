@@ -9,7 +9,7 @@ library(caret)
 
 plot_avg <- function(dt, feature, target = "y"){
     # To plot the dependence of mean ourcome as function of a feature as well 
-    # as to mark the count samples for each feature value.
+    # as to mark the count of samples for each feature value.
     #
     # Arguments:
     #   dt: data.table of the bank dataset
@@ -24,12 +24,14 @@ plot_avg <- function(dt, feature, target = "y"){
                     count = .N), 
                   by = get(feature)] %>%
         set_colnames(c(feature, "avg_success", "samples"))
+    
     ggplot(dat_avg, aes_string(x = feature)) +
         geom_point(aes(y = avg_success, size = samples), 
                    alpha = 0.5) +
         scale_size_area() +
         ylim(0, 1.05 * max(dat_avg$avg_success)) +
-        geom_text(aes(y = avg_success + 0.04 * max(avg_success), label = samples)) +
+        geom_text(aes(y = avg_success + 0.04 * max(avg_success), 
+                      label = samples)) +
         theme_bw() +
         theme(legend.position = "none")
 }
@@ -130,36 +132,3 @@ plot_lifts <- function(y, ...){
         theme(legend.position = c(0.85, 0.4)) 
 }
 
-# 
-# create_dummies <- function(data_train, data_new = NULL, excluded = "y"){
-#     # Create dummy variables for data_new using data_train
-#     #
-#     # Arguments:
-#     #  data_train, data_new: data.tables
-#     # exluded: vector of factor columns excluded from transfromation
-#     # 
-#     # Returns:
-#     #   Transformed dataframe of data_new
-#     
-#     if (is.null(data_new)){
-#         data_new <- data_train
-#     }
-# 
-#     cat_feats <- names(data_train)[sapply(data_train, is.factor)] %>%
-#         setdiff(excluded)
-#     other_feats <- setdiff(names(data_train), cat_feats)
-#     
-#     train_cat <- data_train[, cat_feats, with = FALSE]
-#     train_others <- data_train[, other_feats, with = FALSE]
-#     
-#     new_cat <- data_new[, cat_feats, with = FALSE]
-#     new_others <- data_new[, other_feats, with = FALSE]
-#     
-#     dummy_trans <- dummyVars(~ ., train_cat, sep = "_", fullRank = TRUE)
-#     new_dummies <- predict(dummy_trans, new_cat) %>%
-#         as.data.table()
-#     
-#     cbind(new_dummies, new_others)
-# }
-# 
-# 

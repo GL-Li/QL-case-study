@@ -1,5 +1,5 @@
 ---
-title: "Quicken Loans Case Study"
+title: "QL case Study: exploratory data analysis"
 author: "Guanglai Li"
 date: "6/5/2020"
 output: html_document
@@ -10,52 +10,15 @@ knitr::opts_chunk$set(echo = TRUE)
 ```
 
 
-## The problem set
-To decide to call which client that has better conversion rate.
 
-What happens: A bank agent calls a client. The client decides whether to subscribe a term deposit. The outcome is "yes" or "no".
+## Dependence of average success ("yes") rate on individual features
+The purpose of this analysis is to quickly visualize dependence of average outcome on a feature. It is not tuned for best visual effect.
 
-
-Rank by probability, choose a cutoff by considering cost and gain, which is not available now.
-
-
-data ordered from old to new: using model build on old data to predict on new data. So it is not a random train-test splitting.
-
-Why bank-full not bank-additional-full:
-- extra economic indicators not available at the time of making prediction
-- bank-full has a feature of balance, which is a strong feature.
-
-
-Use the best results from this [paper](http://media.salford-systems.com/video/tutorial/2015/targeted_marketing.pdf) as baseline model.
-
-To make useful predictive models, values of features must be known at time of prediction.
-
-Temporal train-test splitting to predict for future
-
-Use easy to collect features for predictive model
-
-
-### bank client data: 
-for existing bank client so the bank client data is known
-
-duration is not known before call so has no predictive value
-
-### month 
-only 10 months, no future predictive power? treat as integer????
-
-### Other attributes
-- pdays: number of days that passed by after the client was last contacted from a previous campaign (numeric; 999 means client was not previously contacted)
-
-### social and economic context attributes
-
-
-## Dependence of average outcome on individual features
-
-### Reading data
+### Reading data and check the outcome
 Read the data and convert the outcome column *y* to integer, 0 for "no" and 1 for "yes", so that the mean of the outcome is the average success rate.
+
 ```{r}
-library(data.table)
-library(magrittr)
+source("utilities.R")
 
 dat <- fread("bank/bank-full.csv") %>%
     .[y == "yes", y := 1] %>%
@@ -70,9 +33,7 @@ The outcome is inbalanced, with far more failure than success. The average succe
 barplot(table(dat$y), ylab = "Count")
 ```
 
-The distribution of success is not temporally homogeneous. The sparks may be the result of special campaign.
-
-**Assumption**: We will assume that same clients with same features have the same probability to subscribe. 
+The distribution of success is not homogeneous over time. The sparks may be the result of special campaign.
 
 ```{r}
 # moving average
@@ -89,42 +50,6 @@ plot(1:nrow(dat), dat$mv_avg, type = "l",
 ```
 
 
-
-### Defining a function to visualize outcome ~ feature
-The purpose is to quickly visualize dependence of average outcome on a feature. It is not tuned for the for best visual effect.
-
-```{r}
-plot_avg <- function(dt, feature, target = "y"){
-    # To plot the dependence of mean ourcome as function of a feature as well 
-    # as to mark the count samples for each feature value.
-    #
-    # Arguments
-    # ---------
-    # dt: data.table of the bank dataset
-    # feature: one of the features in the datset
-    # target: target of the dataset
-    #
-    # Return
-    # ------
-    # make a plot, no return
-    
-    dat_avg <- dt[, 
-                  .(avg_success = mean(get(target)),
-                    count = .N), 
-                  by = get(feature)] %>%
-        set_colnames(c(feature, "avg_success", "samples"))
-    ggplot(dat_avg, aes_string(x = feature)) +
-        geom_point(aes(y = avg_success, size = samples), 
-                   alpha = 0.5) +
-        scale_size_area() +
-        ylim(0, 1.05 * max(dat_avg$avg_success)) +
-        geom_text(aes(y = avg_success + 0.04 * max(avg_success), label = samples)) +
-        theme_bw() +
-        theme(legend.position = "none")
-}
-```
-
-
 ### Age
 Age is skewed and the count have a quick drop after 60
 ```{r}
@@ -137,29 +62,28 @@ plot_avg(dat, "age")
 ```
 
 ### job
-Student and retired are most likely to subscribe. The retired corresponds to the age > 60 and students are those with younger ages. 0.8% unknown. Group unknown and unemployed. Reduce group to "admin", "blue-collar", "technician", "others"
+Student and retired are most likely to subscribe. The retired corresponds to the age > 60 and students are those with younger ages. 0.5% unknown.
 
 ```{r}
-# job, 0.8% missing, unemployed and student are special
 plot_avg(dat, "job") + theme(axis.text.x = element_text(angle = 20, hjust = 1))
 ```
 
 ### marital
-0.2% missing. Singles have hight success rate. Merge into two groups: "married", "single". Unknow to single
+Singles have hight success rate. 
 
 ```{r}
 plot_avg(dat, "marital")
 ```
 
 ### education
-4% missing. A small number (n = 18) illiterates have high success rate. Are they retired?
+3.4% missing.
 ```{r}
 plot_avg(dat, "education") + theme(axis.text.x = element_text(angle = 20, hjust = 1))
 ```
 
 
 ### credit default
-A large number of missing values and almost all other have no default, we cannot impute the missing value but rather treat the missing value as its own category.
+Not supprising.
 
 ```{r}
 plot_avg(dat, "default")
@@ -176,15 +100,15 @@ plot_avg(dat, "balance_cut")
 
 
 
-### housing load?
-With or without housing loan seems not a big factor. 2.4% missing values.
+### housing loan?
+Loan free is good.
 
 ```{r}
 plot_avg(dat, "housing")
 ```
 
 ### personal loan?
-With or without personal loan is not big deal. 2.4% missing, same clients as in housing loan?
+Good to have no debt.
 
 ```{r}
 plot_avg(dat, "loan")
@@ -192,7 +116,7 @@ plot_avg(dat, "loan")
 
 
 # contact: cell phone or landline
-More success when contact with cell phone.
+Why unknown is so special?!
 
 ```{r}
 plot_avg(dat, "contact")
@@ -200,7 +124,7 @@ plot_avg(dat, "contact")
 
 
 ### month
-Four month with small sample number but high success rate. Remove month as the two and half year data is not enough to cover the temperoal split of train-validation-test datasets.
+Four month with small sample number but high success rate. It is not going to be reproducible. Delete this feature.
 
 ```{r}
 dat$month = factor(dat$month, 
@@ -211,7 +135,7 @@ plot_avg(dat, "month") +
 ```
 
 ### day
-Delete as it does not carry much information
+The first day is special but the sample number (322) is too low. Delete as it does not carry much information.
 
 ```{r}
 plot_avg(dat, "day")
@@ -226,7 +150,7 @@ plot_avg(dat, "campaign")
 ```
 
 ### days since last contact in a previous campaign
--1 means no contact in a previous campaign. For the small amount of sample with previous contact, it boosts success but no obvious trend, thus can be grouped otgether. So this feature can be placed into two groups: with and without previous contact.
+-1 means no contact in a previous campaign. For the small amount of sample with previous contact, it boosts success but no obvious trend with number of day, thus can be grouped together. Create a new feature to show with and without contact.
 
 ```{r}
 hist(dat$pdays, breaks = 100)
@@ -235,14 +159,14 @@ plot_avg(dat, "pdays") + xlim(0, 30)
 ```
 
 ### number of contact in previous campaign
-reduce to two groupd, "yes" and "no".
+Highly correlated to pdays.
 
 ```{r}
 plot_avg(dat, "previous") + xlim(0, 40)
 ```
 
 ### outcome of previous campaign
-Success leads to success. others just one group
+Success leads to success.
 
 ```{r}
 plot_avg(dat, "poutcome")

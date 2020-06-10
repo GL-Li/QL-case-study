@@ -3,22 +3,20 @@ library(randomForest)
 library(xgboost)
 library(e1071)
 library(pROC)     # plot ROC
-library(ROSE)     # for oversampling
+library(ROSE)     # for undersampling
 
 
 
 # read data and split into train and test =====================================
-# remember to remove duration
+# remember to remove duration, month, and day
 dat <- fread("bank/bank-full.csv",
              stringsAsFactors = TRUE) %>%
     .[, y := factor(y, levels = c("yes", "no"))] %>%
     .[, duration := NULL] %>%
     .[, month := NULL] %>%
-    .[, day := NULL] %>%
-    # randomForest() hates "-" in column names (happens after creating dummies)
-    .[, job := factor(stringr::str_replace_all(job, "-", ""))]
+    .[, day := NULL]
 
-# train-test split based on time. the last 9000 samples in test
+# random train-test split instead of based on time. 
 set.seed(98765)
 in_train <- createDataPartition(dat$y, p = 0.7, list = F)
 dat_train <- dat[in_train,]
@@ -27,6 +25,8 @@ dat_test <- dat[-in_train,]
 
 
 # baseline model ==============================================================
+# Use logistic regression on data without preprocessing to quickly build a 
+# baseline model
 
 base <- glm(y ~ ., data = dat_train, family = binomial)
 
@@ -36,44 +36,40 @@ base_roc_train <- roc(dat_train$y, base_pred_train)
 base_pred_test <- predict(base, dat_test, type = "response")
 base_roc_test <- roc(dat_test$y, base_pred_test)
 
-# plot roc curves using train and test data
+# plot roc curves on train and test data. Name the ggplot object so we can 
+# save the plot with data for future use. Plot lift curves takes a long time
 base_roc <- plot_rocs(`base train` = base_roc_train, `base test` = base_roc_test)
+base_roc    
 
+# plot lift curve using test data only
 base_lift <- plot_lifts(y = dat_test$y, base_test = 1 - base_pred_test)
+base_lift
 
 
 
 # data preprocessing ===========================================================
+# Try some data preprocessing in hope to improve model performance
 
-clean_data <- function(data = dat_train){
-    # To treat categorical feature. The unknowns are treated as its own category
-    # as there are reasons to be missing.
-    #
-    # Arguments:
-    #   data: data frame with features to be preprocessed
-    #
-    # Return:
-    #   A data frame with preproccessed features
+add_feature <- function(data = dat_train){
+    # need more work at this place
     
     # pdays into categorical feature pcontact of two groups
     data[, previous_contact := factor(ifelse(pdays == -1, "no", "yes"))]
     
-    # previous into "yes" and "no" and is exactly the same as pdays, delete
-
     return(data)
 }
 
-dat_train <- clean_data(dat_train)
-dat_test <- clean_data(dat_test) 
-
+dat_train <- add_feature(dat_train)
+dat_test <- add_feature(dat_test) 
 
 # fix skewness
-pre_proc <- preProcess(dat_train, method = c("center", "scale", "YeoJohnson"))
+fix_skewness <- preProcess(dat_train, method = c("center", "scale", "YeoJohnson"))
 
-train <- predict(pre_proc, dat_train)
-test <- predict(pre_proc, dat_test)
+train <- predict(fix_skewness, dat_train)
+test <- predict(fix_skewness, dat_test)
 
-# over-sampling train data
+# under-sampling train data. Data after oversampling is too big for my computer
+# and does not improve model performance after a few test runs.
 train_un <- ovun.sample(
     y ~.,
     data = train,
@@ -86,6 +82,7 @@ train_un <- ovun.sample(
 
 
 # logistic regression again ===================================================
+# apply logistic regression on preprocessed data again.
 
 lr <- glm(y ~ ., data = train_un, family = binomial)
 
@@ -95,14 +92,17 @@ lr_roc_train <- roc(train$y, lr_pred_train)
 lr_pred_test <- predict(lr, test, type = "response")
 lr_roc_test <- roc(test$y, lr_pred_test)
 
-# plot roc curves using train and test data
+# plot roc and lift curves using train and test data
 lr_roc <- plot_rocs(`logit train` = lr_roc_train, `logit test` = lr_roc_test)
+lr_roc
 
 lr_lift <- plot_lifts(test$y, logit_test = 1 - lr_pred_test)
+lr_lift
 
 
 
-# support vector machine ======================================================
+# support vector machine =======================================================
+# random search for hyper parameters.
 
 train_control <- trainControl(
     method = "cv",
@@ -125,47 +125,46 @@ svm <- train(
 
 
 
-#svm <- svm(y ~ ., data = train_un, probability = TRUE)
-
 svm_pred_train <- predict(svm, train, type = "prob")[, "yes"]
-#svm_pred_train <-    attr(svm_pred_train, "probabilities")[, "yes"]
 svm_roc_train <- roc(train$y, svm_pred_train)
 
 svm_pred_test <- predict(svm, test, type = "prob")[, "yes"]
-#svm_pred_test <- attr(svm_pred_test, "probabilities")[, "yes"]
 svm_roc_test <- roc(test$y, svm_pred_test)
 
-# plot roc curves using train and test data
+# plot roc and lift curves using train and test data
 svm_roc <- plot_rocs(`svm train` = svm_roc_train, `svm test` = svm_roc_test)
+svm_roc
 
 svm_lift <- plot_lifts(test$y, svm_test = svm_pred_test)
+svm_roc
 
 
 
 # random forest model ==========================================================
+# to reduce model size and avoid over fitting, we set a limit to max number of 
+# nodes in a tree. The comment-out code below is to find out the optimal number.
 
 # train_control <- trainControl(
-#     method = "cv",      # "oob" nnot support twoClassSummary
+#     method = "cv",      # "oob" does not support twoClassSummary
 #     number = 5,
 #     search = "random",
-#     classProbs = TRUE,  # for metric = "ROC"
-#     summaryFunction=twoClassSummary,  # for metric "ROC"
+#     classProbs = TRUE, 
+#     summaryFunction=twoClassSummary, 
 #     verboseIter = FALSE
 # )
 # 
 # tune_grid <- expand.grid(mtry = 5:7)
 # 
 
-# use a subset of train_un to quickly find the optimal max_node of random forest
-# turns out AUC is not sensitive to max_node. Select 32 to reduce computation
-# load.
+# Print out results and eyeball to select max_node for random forest. turns out
+# AUC is not sensitive to max_node. Select 32 anyway.
 # set.seed(1111)
 # for (max_nodes in 2^(2:10)){
 #     cat(paste0("\nmaxnodes = ", max_nodes, ":\n"))
 #     
 #     rf <- train(
 #         y ~., 
-#         data = train_un[sample(1:nrow(train_un), 5000)],
+#         data = train_un,
 #         method = "rf",
 #         maxnodes = max_nodes,
 #         metric = "ROC",
@@ -177,7 +176,7 @@ svm_lift <- plot_lifts(test$y, svm_test = svm_pred_test)
 # }
 
 
-# use the max_node to train a random forest model
+# use the max_node = 32 to train a random forest model
 rf <- randomForest(y ~ ., train_un, 
                    maxnodes = 32, 
                    ntree = 1000)
@@ -188,13 +187,17 @@ rf_roc_train <- roc(train$y, rf_pred_train)
 rf_pred_test <- predict(rf, test, type = "prob")[, "yes"]
 rf_roc_test <- roc(test$y, rf_pred_test)
 
+# plot roc and lift curves
 rf_roc <- plot_rocs(`rf train` = rf_roc_train, `rf test` = rf_roc_test)
+rf_roc
 
 rf_lift <- plot_lifts(test$y, rf_test = rf_pred_test)
+rf_lift
 
 
 
 # xgboost ======================================================================
+# use random search find the best hyper parameters
 
 train_control <- trainControl(
     method = "cv",
@@ -209,7 +212,6 @@ xgb <- train(
     y ~., 
     data = train_un,
     method = "xgbTree",
-    #weights = ifelse(dat_train$y == "no", 0.1, 0.9),  
     metric = "ROC",
     trControl = train_control,
     tuneLength = 100
@@ -221,12 +223,16 @@ xgb_roc_train <- roc(train$y, xgb_pred_train)
 xgb_pred_test <- predict(xgb, test, type = "prob")[, "yes"]
 xgb_roc_test <- roc(test$y, xgb_pred_test)
 
+# plot auc and lift curves
 xgb_roc <- plot_rocs(`xgb train` = xgb_roc_train, `xgb test` = xgb_roc_test)
+xgb_roc
 
 xgb_lift <- plot_lifts(test$y, xgb_test = xgb_pred_test)
+xgb_lift
 
 
-# plot together to compare models ==============================================
+
+# plot models together and compare models ======================================
 
 # all ROCs using test data
 all_rocs <- plot_rocs(base = base_roc_test, 
@@ -243,7 +249,7 @@ all_lifts <- plot_lifts(test$y,
            random_forest = rf_pred_test,
            xgb = xgb_pred_test)
 
-# select xgb as the final model and compare to base
+# select xgb as the final model and compare to baseline model
 xgb_base_roc <- plot_rocs(base = base_roc_test, 
                           xgb = xgb_roc_test)
 xgb_base_lift <- plot_lifts(test$y,
