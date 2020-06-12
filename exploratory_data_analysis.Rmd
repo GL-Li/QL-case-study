@@ -21,9 +21,7 @@ Read the data and convert the outcome column *y* to integer, 0 for "no" and 1 fo
 source("utilities.R")
 
 dat <- fread("bank/bank-full.csv") %>%
-    .[y == "yes", y := 1] %>%
-    .[y == "no", y := 0] %>%
-    .[, y := as.integer(y)]
+  .[, y:= ifelse(y == "yes", 1, 0)]
 ```
 
 
